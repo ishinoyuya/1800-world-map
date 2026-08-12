@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1800年 世界国境パズル</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="pageTitle">1800年 世界国境パズル</h1>
+    <div class="stats">
+      <span id="progress">0 / 0</span>
+      <span id="timer">00:00</span>
+      <label class="hint-toggle">
+        <input type="checkbox" id="hintToggle" checked>
+        ヒント枠を表示
+      </label>
+      <button id="resetBtn">最初から</button>
+      <button id="answerBtn">正解マップ</button>
+      <button id="changeModeBtn">モード変更</button>
+    </div>
+  </header>
+
+  <main class="game-layout">
+    <aside class="tray-panel">
+      <h2>国・地域リスト <span id="trayCount"></span></h2>
+      <ul id="trayList" class="tray-list"></ul>
+    </aside>
+
+    <section class="board-panel">
+      <div class="canvas-stack">
+        <canvas id="board" width="1200" height="700"></canvas>
+        <canvas id="dragLayer" width="1200" height="700"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <div id="winOverlay" class="win-overlay hidden">
+    <div class="win-card">
+      <h2>クリア!</h2>
+      <p id="winTime"></p>
+      <button id="playAgainBtn">もう一度プレイ</button>
+    </div>
+  </div>
+
+  <div id="modeOverlay" class="mode-overlay">
+    <div class="mode-card">
+      <h2>モードを選択</h2>
+      <p class="mode-desc">世界全体、または地域を選んでプレイできます。</p>
+      <div class="mode-grid" id="modeGrid"></div>
+    </div>
+  </div>
+
+  <div id="answerOverlay" class="answer-overlay hidden">
+    <div class="answer-toolbar">
+      <span id="answerTitle" class="answer-title"></span>
+      <div class="answer-controls">
+        <button id="zoomOutBtn" aria-label="縮小">－</button>
+        <button id="zoomResetBtn">リセット</button>
+        <button id="zoomInBtn" aria-label="拡大">＋</button>
+        <button id="closeAnswerBtn">閉じる</button>
+      </div>
+    </div>
+    <div class="answer-canvas-wrap" id="answerCanvasWrap">
+      <canvas id="answerCanvas" width="1200" height="700"></canvas>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
