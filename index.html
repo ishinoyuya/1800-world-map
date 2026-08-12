@@ -28,10 +28,15 @@
       <ul id="trayList" class="tray-list"></ul>
     </aside>
 
-    <section class="board-panel">
+    <section class="board-panel" id="boardPanel">
       <div class="canvas-stack">
         <canvas id="board" width="1200" height="700"></canvas>
         <canvas id="dragLayer" width="1200" height="700"></canvas>
+      </div>
+      <div class="board-zoom-controls">
+        <button id="boardZoomInBtn" aria-label="拡大">＋</button>
+        <button id="boardZoomResetBtn" aria-label="ズームリセット">⟲</button>
+        <button id="boardZoomOutBtn" aria-label="縮小">－</button>
       </div>
     </section>
   </main>

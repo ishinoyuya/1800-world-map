@@ -30,6 +30,12 @@
   const zoomResetBtn = document.getElementById("zoomResetBtn");
   const closeAnswerBtn = document.getElementById("closeAnswerBtn");
 
+  const boardPanel = document.getElementById("boardPanel");
+  const canvasStack = document.querySelector(".canvas-stack");
+  const boardZoomInBtn = document.getElementById("boardZoomInBtn");
+  const boardZoomOutBtn = document.getElementById("boardZoomOutBtn");
+  const boardZoomResetBtn = document.getElementById("boardZoomResetBtn");
+
   const W = board.width;
   const H = board.height;
 
@@ -56,12 +62,22 @@
   const PAD = 16;
   let mainFit;
 
+  // ヨーロッパモードでロシア帝国の東端(シベリア方面)まで含めると、
+  // ヨーロッパ諸国が小さくなりすぎるため、初期表示のズーム計算だけ
+  // ウラル山脈付近(東経60度)で打ち切る。ロシア自体の形はそのまま描画され、
+  // ズーム・パン操作で東側も見に行ける。
+  const REGION_BBOX_LON_CAP = {
+    europe: { "Russian Empire": 60 },
+  };
+
   function bboxOfPlayable() {
     // 地域モードではプレイ対象の国だけでズームする。世界全体モードでは
     // neutralLand(未確定地域)も含めた地球全体の範囲を使う。
+    const lonCap = REGION_BBOX_LON_CAP[currentRegion] || {};
     let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
     for (const c of countries) {
-      const [bx0, by0, bx1, by1] = c.bbox;
+      let [bx0, by0, bx1, by1] = c.bbox;
+      if (c.name in lonCap) bx1 = Math.min(bx1, lonCap[c.name]);
       minx = Math.min(minx, bx0); miny = Math.min(miny, by0);
       maxx = Math.max(maxx, bx1); maxy = Math.max(maxy, by1);
     }
@@ -391,6 +407,7 @@
     buildTray();
     render();
     updateProgress();
+    fitBoardToPanel();
   }
 
   function startGame(regionKey) {
@@ -417,41 +434,111 @@
     }
   }
 
-  // ---------- 正解マップ(ズーム・パン可能) ----------
-  const answerState = { baseScale: 1, z: 1, tx: 0, ty: 0 };
-  const activePointers = new Map();
-  let panPointerId = null;
-  let panStart = null;
-  let pinchStartDist = null;
+  // ---------- ズーム・パン可能なビューポート(正解マップ / プレイ中の地図で共用) ----------
+  // wrapEl: 表示領域(overflow:hiddenのコンテナ), targetEl: 実際に拡大縮小するcanvas/div
+  function createPanZoom(wrapEl, targetEl, { maxZoom = 8, onChange } = {}) {
+    const state = { baseScale: 1, z: 1, tx: 0, ty: 0 };
+    const pointers = new Map();
+    let panPointerId = null;
+    let panStart = null;
+    let pinchStartDist = null;
 
-  function answerTotalScale() {
-    return answerState.baseScale * answerState.z;
+    function totalScale() {
+      return state.baseScale * state.z;
+    }
+
+    function apply() {
+      targetEl.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${totalScale()})`;
+      if (onChange) onChange();
+    }
+
+    function fit() {
+      const rect = wrapEl.getBoundingClientRect();
+      state.baseScale = Math.max(0.01, Math.min(rect.width / W, rect.height / H));
+      state.z = 1;
+      const s = totalScale();
+      state.tx = (rect.width - W * s) / 2;
+      state.ty = (rect.height - H * s) / 2;
+      apply();
+    }
+
+    function zoomAt(cx, cy, factor) {
+      const oldScale = totalScale();
+      const contentX = (cx - state.tx) / oldScale;
+      const contentY = (cy - state.ty) / oldScale;
+      state.z = Math.min(maxZoom, Math.max(1, state.z * factor));
+      const newScale = totalScale();
+      state.tx = cx - contentX * newScale;
+      state.ty = cy - contentY * newScale;
+      apply();
+    }
+
+    function pinchDist() {
+      const pts = [...pointers.values()];
+      return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    }
+
+    wrapEl.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const rect = wrapEl.getBoundingClientRect();
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
+    }, { passive: false });
+
+    wrapEl.addEventListener("pointerdown", (e) => {
+      try { wrapEl.setPointerCapture(e.pointerId); } catch (err) { /* 無視 */ }
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        panPointerId = e.pointerId;
+        panStart = { x: e.clientX, y: e.clientY, tx: state.tx, ty: state.ty };
+        wrapEl.classList.add("dragging");
+      } else if (pointers.size === 2) {
+        panPointerId = null;
+        pinchStartDist = pinchDist();
+      }
+    });
+
+    wrapEl.addEventListener("pointermove", (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        const rect = wrapEl.getBoundingClientRect();
+        const pts = [...pointers.values()];
+        const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
+        const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
+        const dist = pinchDist();
+        zoomAt(midX, midY, dist / pinchStartDist);
+        pinchStartDist = dist;
+      } else if (panPointerId === e.pointerId) {
+        state.tx = panStart.tx + (e.clientX - panStart.x);
+        state.ty = panStart.ty + (e.clientY - panStart.y);
+        apply();
+      }
+    });
+
+    function endPointer(e) {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.delete(e.pointerId);
+      if (panPointerId === e.pointerId) {
+        panPointerId = null;
+        wrapEl.classList.remove("dragging");
+      }
+      if (pointers.size < 2) pinchStartDist = null;
+      if (pointers.size === 1) {
+        const [id, pt] = [...pointers.entries()][0];
+        panPointerId = id;
+        panStart = { x: pt.x, y: pt.y, tx: state.tx, ty: state.ty };
+      }
+    }
+    wrapEl.addEventListener("pointerup", endPointer);
+    wrapEl.addEventListener("pointercancel", endPointer);
+
+    return { fit, zoomAt, state };
   }
 
-  function applyAnswerTransform() {
-    answerCanvas.style.transform = `translate(${answerState.tx}px, ${answerState.ty}px) scale(${answerTotalScale()})`;
-  }
-
-  function fitAnswerToWrap() {
-    const rect = answerCanvasWrap.getBoundingClientRect();
-    answerState.baseScale = Math.max(0.01, Math.min(rect.width / W, rect.height / H));
-    answerState.z = 1;
-    const s = answerTotalScale();
-    answerState.tx = (rect.width - W * s) / 2;
-    answerState.ty = (rect.height - H * s) / 2;
-    applyAnswerTransform();
-  }
-
-  function zoomAt(cx, cy, factor) {
-    const oldScale = answerTotalScale();
-    const contentX = (cx - answerState.tx) / oldScale;
-    const contentY = (cy - answerState.ty) / oldScale;
-    answerState.z = Math.min(8, Math.max(1, answerState.z * factor));
-    const newScale = answerTotalScale();
-    answerState.tx = cx - contentX * newScale;
-    answerState.ty = cy - contentY * newScale;
-    applyAnswerTransform();
-  }
+  const answerPanZoom = createPanZoom(answerCanvasWrap, answerCanvas);
+  function fitAnswerToWrap() { answerPanZoom.fit(); }
+  function zoomAt(cx, cy, factor) { answerPanZoom.zoomAt(cx, cy, factor); }
 
   function renderAnswerMap() {
     actx.clearRect(0, 0, W, H);
@@ -470,13 +557,6 @@
     requestAnimationFrame(fitAnswerToWrap);
   }
 
-  answerCanvasWrap.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const rect = answerCanvasWrap.getBoundingClientRect();
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
-  }, { passive: false });
-
   zoomInBtn.addEventListener("click", () => {
     const rect = answerCanvasWrap.getBoundingClientRect();
     zoomAt(rect.width / 2, rect.height / 2, 1.4);
@@ -489,58 +569,27 @@
   closeAnswerBtn.addEventListener("click", () => answerOverlay.classList.add("hidden"));
   answerBtn.addEventListener("click", openAnswerOverlay);
 
-  function pinchDist() {
-    const pts = [...activePointers.values()];
-    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-  }
-
-  answerCanvasWrap.addEventListener("pointerdown", (e) => {
-    try { answerCanvasWrap.setPointerCapture(e.pointerId); } catch (err) { /* 無視 */ }
-    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (activePointers.size === 1) {
-      panPointerId = e.pointerId;
-      panStart = { x: e.clientX, y: e.clientY, tx: answerState.tx, ty: answerState.ty };
-      answerCanvasWrap.classList.add("dragging");
-    } else if (activePointers.size === 2) {
-      panPointerId = null;
-      pinchStartDist = pinchDist();
-    }
+  // ---------- プレイ中の地図のズーム・パン ----------
+  const boardPanZoom = createPanZoom(boardPanel, canvasStack, {
+    maxZoom: 10,
+    onChange: renderDragLayer, // パン/ズーム後もドラッグ中のピースの見た目位置がずれないように再描画
   });
+  function fitBoardToPanel() { boardPanZoom.fit(); }
 
-  answerCanvasWrap.addEventListener("pointermove", (e) => {
-    if (!activePointers.has(e.pointerId)) return;
-    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (activePointers.size === 2) {
-      const rect = answerCanvasWrap.getBoundingClientRect();
-      const pts = [...activePointers.values()];
-      const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
-      const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
-      const dist = pinchDist();
-      zoomAt(midX, midY, dist / pinchStartDist);
-      pinchStartDist = dist;
-    } else if (panPointerId === e.pointerId) {
-      answerState.tx = panStart.tx + (e.clientX - panStart.x);
-      answerState.ty = panStart.ty + (e.clientY - panStart.y);
-      applyAnswerTransform();
-    }
+  boardZoomInBtn.addEventListener("click", () => {
+    const rect = boardPanel.getBoundingClientRect();
+    boardPanZoom.zoomAt(rect.width / 2, rect.height / 2, 1.4);
   });
+  boardZoomOutBtn.addEventListener("click", () => {
+    const rect = boardPanel.getBoundingClientRect();
+    boardPanZoom.zoomAt(rect.width / 2, rect.height / 2, 1 / 1.4);
+  });
+  boardZoomResetBtn.addEventListener("click", fitBoardToPanel);
 
-  function endAnswerPointer(e) {
-    if (!activePointers.has(e.pointerId)) return;
-    activePointers.delete(e.pointerId);
-    if (panPointerId === e.pointerId) {
-      panPointerId = null;
-      answerCanvasWrap.classList.remove("dragging");
-    }
-    if (activePointers.size < 2) pinchStartDist = null;
-    if (activePointers.size === 1) {
-      const [id, pt] = [...activePointers.entries()][0];
-      panPointerId = id;
-      panStart = { x: pt.x, y: pt.y, tx: answerState.tx, ty: answerState.ty };
-    }
-  }
-  answerCanvasWrap.addEventListener("pointerup", endAnswerPointer);
-  answerCanvasWrap.addEventListener("pointercancel", endAnswerPointer);
+  window.addEventListener("resize", () => {
+    fitBoardToPanel();
+    if (!answerOverlay.classList.contains("hidden")) fitAnswerToWrap();
+  });
 
   hintToggle.addEventListener("change", render);
   resetBtn.addEventListener("click", initGame);
