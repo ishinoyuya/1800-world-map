@@ -62,34 +62,12 @@
   const PAD = 16;
   let mainFit;
 
-  // ヨーロッパモードでロシア帝国の東端(シベリア方面)まで含めると、
-  // ヨーロッパ諸国が小さくなりすぎるため、ウラル山脈付近(東経60度)で打ち切る。
-  // これは初期表示のズーム計算だけでなく、配置判定の目標点(重心)にも
-  // 同じ基準を使う。そうしないと「見えている範囲」と「実際に置くべき場所」が
-  // ズレてしまい、ロシアを配置できなくなる。ロシア自体の形はそのまま描画され、
-  // ズーム・パン操作で東側も見に行ける。
-  const REGION_BBOX_LON_CAP = {
-    europe: { "Russian Empire": 60 },
-  };
-
-  function effectiveBbox(country) {
-    const lonCap = REGION_BBOX_LON_CAP[currentRegion] || {};
-    let [bx0, by0, bx1, by1] = country.bbox;
-    if (country.name in lonCap) bx1 = Math.min(bx1, lonCap[country.name]);
-    return [bx0, by0, bx1, by1];
-  }
-
-  function effectiveCentroid(country) {
-    const [bx0, by0, bx1, by1] = effectiveBbox(country);
-    return [(bx0 + bx1) / 2, (by0 + by1) / 2];
-  }
-
   function bboxOfPlayable() {
     // 地域モードではプレイ対象の国だけでズームする。世界全体モードでは
     // neutralLand(未確定地域)も含めた地球全体の範囲を使う。
     let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
     for (const c of countries) {
-      const [bx0, by0, bx1, by1] = effectiveBbox(c);
+      const [bx0, by0, bx1, by1] = c.bbox;
       minx = Math.min(minx, bx0); miny = Math.min(miny, by0);
       maxx = Math.max(maxx, bx1); maxy = Math.max(maxy, by1);
     }
@@ -265,8 +243,7 @@
   function renderDragLayer() {
     dctx.clearRect(0, 0, W, H);
     if (!dragging) return;
-    const [ecx, ecy] = effectiveCentroid(dragging.country);
-    const [tcx, tcy] = mainFit.centroidPx(ecx, ecy);
+    const [tcx, tcy] = mainFit.centroidPx(dragging.country.centroid[0], dragging.country.centroid[1]);
     const dx = dragging.cx - tcx;
     const dy = dragging.cy - tcy;
     const shiftedProject = (x, y) => {
@@ -339,7 +316,7 @@
   }
 
   function tolerancePx(country) {
-    const [bx0, by0, bx1, by1] = effectiveBbox(country);
+    const [bx0, by0, bx1, by1] = country.bbox;
     const w = (bx1 - bx0) * mainFit.scale;
     const h = (by1 - by0) * mainFit.scale;
     const diag = Math.sqrt(w * w + h * h);
@@ -353,8 +330,7 @@
     document.removeEventListener("pointercancel", onDragEnd);
 
     const country = dragging.country;
-    const [ecx, ecy] = effectiveCentroid(country);
-    const [tcx, tcy] = mainFit.centroidPx(ecx, ecy);
+    const [tcx, tcy] = mainFit.centroidPx(country.centroid[0], country.centroid[1]);
     const dist = Math.hypot(dragging.cx - tcx, dragging.cy - tcy);
     const tol = tolerancePx(country);
 
